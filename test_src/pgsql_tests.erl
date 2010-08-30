@@ -525,13 +525,6 @@ listen_notify_payload_test() ->
       end,
       [{async, self()}]).
 
-%% -- run all tests --
-
-run_tests() ->
-    Files = filelib:wildcard("test_ebin/*tests.beam"),
-    Mods = [list_to_atom(filename:basename(F, ".beam")) || F <- Files],
-    eunit:test(Mods, []).
-
 %% -- internal functions --
 
 connect_only(Args) ->
