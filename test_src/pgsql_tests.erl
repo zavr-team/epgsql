@@ -1,7 +1,5 @@
 -module(pgsql_tests).
 
--export([run_tests/0]).
-
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("ssl/include/OTP-PKIX.hrl").
 -include("pgsql.hrl").

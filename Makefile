@@ -34,7 +34,7 @@ clean:
 
 test: $(TEST_BEAMS) $(BEAMS)
 	@dialyzer --src -c src
-	$(ERL) -pa ebin/ -pa test_ebin/ -noshell -s pgsql_tests run_tests -s init stop
+	$(ERL) -pa ebin/ -pa test_ebin/ -noshell -s pgsql_tests test -s init stop
 
 # ------------------------------------------------------------------------
 
