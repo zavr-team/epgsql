@@ -122,11 +122,18 @@ handle_call({parse, Name, Sql, Types}, From, State) ->
     #state{timeout = Timeout, queue = Queue} = State,
     Bin = pgsql_wire:encode_types(Types),
     send(State, $P, [Name, 0, Sql, 0, Bin]),
-    send(State, $D, [$S, Name, 0]),
     send(State, $H, []),
-    S = #statement{name = Name},
-    State2 = State#state{queue = queue:in(From, Queue)},
-    {noreply, State2, Timeout}.
+    {noreply, State#state{queue = queue:in(From, Queue)}, Timeout};
+
+handle_call({describe, Type, Name}, From, State) ->
+    #state{timeout = Timeout, queue = Queue} = State,
+    case Type of
+        statement -> Type2 = $S;
+        portal    -> Type2 = $P
+    end,
+    send(State, $D, [Type2, Name, 0]),
+    send(State, $H, []),
+    {noreply, State#state{queue = queue:in(From, Queue)}, Timeout}.
 
 handle_cast(cancel, State = #state{backend = {Pid, Key}}) ->
     {ok, {Addr, Port}} = inet:peername(State#state.sock),
