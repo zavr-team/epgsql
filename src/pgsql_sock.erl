@@ -123,7 +123,7 @@ handle_call({parse, Name, Sql, Types}, From, State) ->
     Bin = pgsql_wire:encode_types(Types),
     send(State, $P, [Name, 0, Sql, 0, Bin]),
     send(State, $H, []),
-    {noreply, State#state{queue = queue:in(From, Queue)}, Timeout};
+    {reply, ok, State#state{queue = queue:in(From, Queue)}, Timeout};
 
 handle_call({describe, Type, Name}, From, State) ->
     #state{timeout = Timeout, queue = Queue} = State,
@@ -133,7 +133,7 @@ handle_call({describe, Type, Name}, From, State) ->
     end,
     send(State, $D, [Type2, Name, 0]),
     send(State, $H, []),
-    {noreply, State#state{queue = queue:in(From, Queue)}, Timeout}.
+    {reply, ok, State#state{queue = queue:in(From, Queue)}, Timeout}.
 
 handle_cast(cancel, State = #state{backend = {Pid, Key}}) ->
     {ok, {Addr, Port}} = inet:peername(State#state.sock),
@@ -210,8 +210,12 @@ send(#state{mod = Mod, sock = Sock}, Data) ->
 send(#state{mod = Mod, sock = Sock}, Type, Data) ->
     Mod:send(Sock, pgsql_wire:encode(Type, Data)).
 
-gen_reply(#state{queue = Q} = State, Message) ->
+gen_reply(#state{queue = Q}, Message) ->
     gen_server:reply(queue:get(Q), Message).
+
+reply(#state{queue = Q}, Message) ->
+    {Pid, _} = queue:get(Q),
+    Pid ! {pgsql, self(), Message}.
 
 notify_async(#state{async = Pid}, Msg) ->
     case is_pid(Pid) of
@@ -249,9 +253,8 @@ auth({$R, <<M:?int32, _/binary>>}, State) ->
         8 -> Method = sspi;
         _ -> Method = unknown
     end,
-    {stop,
-     normal,
-     gen_reply(State, {error, {unsupported_auth_method, Method}})};
+    gen_reply(State, {error, {unsupported_auth_method, Method}}),
+    {stop, normal, State};
 
 %% ErrorResponse
 auth({error, E}, State) ->
@@ -260,10 +263,12 @@ auth({error, E}, State) ->
         <<"28P01">> -> Why = invalid_password;
         Any         -> Why = Any
     end,
-    {stop, normal, gen_reply(State, {error, Why})};
+    gen_reply(State, {error, Why}),
+    {stop, normal, State};
 
 auth(timeout, State) ->
-    {stop, normal, gen_reply(State, {error, timeout})};
+    gen_reply(State, {error, timeout}),
+    {stop, normal, State};
 
 auth(Other, State) ->
     #state{timeout = Timeout} = State,
@@ -277,11 +282,12 @@ initializing({$K, <<Pid:?int32, Key:?int32>>}, State) ->
     {noreply, State2, Timeout};
 
 initializing(timeout, State) ->
-    {stop, normal, gen_reply(State, {error, timeout})};
+    gen_reply(State, {error, timeout}),
+    {stop, normal, State};
 
 %% ReadyForQuery
 initializing({$Z, <<Status:8>>}, State) ->
-    #state{parameters = Parameters} = State,
+    #state{parameters = Parameters, queue = Queue} = State,
     erase(username),
     erase(password),
     %% TODO decode dates to now() format
@@ -292,15 +298,23 @@ initializing({$Z, <<Status:8>>}, State) ->
     State2 = State#state{handler = on_message,
                          txstatus = Status,
                          ready = true},
-    {noreply, gen_reply(State2, {ok, self()})};
+    gen_reply(State2, {ok, self()}),
+    {noreply, State2#state{queue = queue:drop(Queue)}};
 
 initializing({error, _} = Error, State) ->
-    {stop, normal, gen_reply(State, Error)};
+    gen_reply(State, Error),
+    {stop, normal, State};
 
 initializing(Other, State) ->
     #state{timeout = Timeout} = State,
     {noreply, State2} = on_message(Other, State),
     {noreply, State2, Timeout}.
+
+%% ParseComplete
+on_message({$1, <<>>}, State) ->
+    #state{queue = Queue} = State,
+    reply(State, parsed),
+    {noreply, State#state{queue = queue:drop(Queue)}};
 
 %% NoticeResponse
 on_message({$N, Data}, State) ->
