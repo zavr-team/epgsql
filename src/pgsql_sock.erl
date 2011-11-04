@@ -65,13 +65,13 @@ squery(C, Sql) ->
     cast(C, {squery, Sql}).
 
 squery(C, Sql, Fun) ->
-    cast(C, {squery, Sql, Fun}).
+    cast(C, Fun, {squery, Sql}).
 
 equery(C, Statement, Parameters) ->
     cast(C, {equery, Statement, Parameters}).
 
 equery(C, Statement, Parameters, Fun) ->
-    cast(C, {equery, Statement, Parameters, Fun}).
+    cast(C, Fun, {equery, Statement, Parameters}).
 
 parse(C, Name, Sql, Types) ->
     cast(C, {parse, Name, Sql, Types}).
@@ -83,7 +83,7 @@ execute(C, Statement, PortalName, MaxRows) ->
     cast(C, {execute, Statement, PortalName, MaxRows}).
 
 execute(C, Statement, PortalName, MaxRows, Fun) ->
-    cast(C, {execute, Statement, PortalName, MaxRows, Fun}).
+    cast(C, Fun, {execute, Statement, PortalName, MaxRows}).
 
 describe(C, statement, Name) ->
     cast(C, {describe_statement, Name});
@@ -255,6 +255,11 @@ cast(C, Command) ->
     gen_server:cast(C, {{self(), Ref}, Command}),
     Ref.
 
+cast(C, Fun, Command) ->
+    Ref = make_ref(),
+    gen_server:cast(C, {{Fun, Ref}, Command}),
+    Ref.
+
 start_ssl(S, Flag, Opts, State) ->
     ok = gen_tcp:send(S, <<8:?int32, 80877103:?int32>>),
     Timeout = proplists:get_value(timeout, Opts, 5000),
@@ -299,7 +304,12 @@ loop(#state{data = Data, handler = Handler} = State) ->
 
 reply(State = #state{queue = Q}, Message) ->
     {{From, Ref}, _} = queue:get(Q),
-    From ! {Ref, Message},
+    if
+        is_pid(From) ->
+            From ! {Ref, Message};
+        is_function(From) ->
+            From(Ref, Message)
+    end,
     State#state{queue = queue:drop(Q),
                 statement = undefined,
                 columns = [],
