@@ -93,7 +93,7 @@ select_callback_test() ->
     with_connection(
       fun(C) ->
               Self = self(),
-              Fun = fun(M) ->
+              Fun = fun(_, M) ->
                             Self ! M
                     end,
               pgsql_sock:squery(C, "select * from test_table1", Fun),
