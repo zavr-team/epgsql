@@ -10,13 +10,13 @@
          close/1,
          get_parameter/2,
          squery/2,
-         squery_callback/3,
+         squery/3,
          equery/3,
-         equery_callback/4,
+         equery/4,
          parse/4,
          bind/4,
          execute/4,
-         execute_callback/5,
+         execute/5,
          describe/3,
          close/3,
          sync/1,
@@ -64,14 +64,14 @@ get_parameter(C, Name) ->
 squery(C, Sql) ->
     cast(C, {squery, Sql}).
 
-squery_callback(C, Sql, Fun) ->
-    cast(C, {squery_callback, Sql, Fun}).
+squery(C, Sql, Fun) ->
+    cast(C, {squery, Sql, Fun}).
 
 equery(C, Statement, Parameters) ->
     cast(C, {equery, Statement, Parameters}).
 
-equery_callback(C, Statement, Parameters, Fun) ->
-    cast(C, {equery_callback, Statement, Parameters, Fun}).
+equery(C, Statement, Parameters, Fun) ->
+    cast(C, {equery, Statement, Parameters, Fun}).
 
 parse(C, Name, Sql, Types) ->
     cast(C, {parse, Name, Sql, Types}).
@@ -82,8 +82,8 @@ bind(C, Statement, PortalName, Parameters) ->
 execute(C, Statement, PortalName, MaxRows) ->
     cast(C, {execute, Statement, PortalName, MaxRows}).
 
-execute_callback(C, Statement, PortalName, MaxRows, Fun) ->
-    cast(C, {execute_callback, Statement, PortalName, MaxRows, Fun}).
+execute(C, Statement, PortalName, MaxRows, Fun) ->
+    cast(C, {execute, Statement, PortalName, MaxRows, Fun}).
 
 describe(C, statement, Name) ->
     cast(C, {describe_statement, Name});
