@@ -367,8 +367,15 @@ flush_queue(#state{queue = Q} = State, Error) ->
         true -> State
     end.
 
-on_row(State, Data) ->
-    State#state{rows = [Data | State#state.rows]}.
+on_row(State = #state{queue = Q}, Data) ->
+    {{From, Ref}, _} = queue:get(Q),
+    if
+        is_pid(From) ->
+            State#state{rows = [Data | State#state.rows]};
+        is_function(From) ->
+            From(Ref, {data, Data}),
+            State
+    end.
 
 to_binary(B) when is_binary(B) -> B;
 to_binary(L) when is_list(L)   -> list_to_binary(L).
