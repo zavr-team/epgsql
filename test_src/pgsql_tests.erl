@@ -89,6 +89,36 @@ select_test() ->
               [{<<"1">>, <<"one">>}, {<<"2">>, <<"two">>}] = Rows
       end).
 
+select_callback_test() ->
+    with_connection(
+      fun(C) ->
+              Self = self(),
+              Fun = fun(M) ->
+                            Self ! M
+                    end,
+              pgsql_sock:squery(C, "select * from test_table1", Fun),
+              receive
+                  {data, {<<"1">>, <<"one">>}} -> ok
+              after
+                  1000 -> throw(timeout)
+              end,
+              receive
+                  {data, {<<"2">>, <<"two">>}} -> ok
+              after
+                  1000 -> throw(timeout)
+              end,
+              receive
+                  complete -> ok
+              after
+                  1000 -> throw(timeout)
+              end,
+              receive
+                  done -> ok
+              after
+                  1000 -> throw(timeout)
+              end
+      end).
+
 insert_test() ->
     with_rollback(
       fun(C) ->
