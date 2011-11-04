@@ -316,11 +316,21 @@ reply(State = #state{queue = Q}, Message) ->
                 rows = [],
                 results = []}.
 
-add_result(State = #state{results = Results}, Result) ->
-    State#state{statement = undefined,
-                columns = [],
-                rows = [],
-                results = [Result | Results]}.
+add_result(State = #state{results = Results, queue = Q}, Result) ->
+    {{From, Ref}, _} = queue:get(Q),
+    if
+        is_function(From) ->
+            %% TODO missing Columns and Count
+            From(Ref, complete),
+            State#state{statement = undefined,
+                        columns = [],
+                        rows = []};
+        is_pid(From) ->
+            State#state{statement = undefined,
+                        columns = [],
+                        rows = [],
+                        results = [Result | Results]}
+    end.
 
 notify_async(#state{async = Pid}, Msg) ->
     case is_pid(Pid) of
@@ -525,6 +535,7 @@ on_message({$D, <<_Count:?int16, Bin/binary>>}, State) ->
 
 %% PortalSuspended
 on_message({$s, <<>>}, State) ->
+    %% TODO broken for callback
     {noreply, reply(State, {partial, lists:reverse(State#state.rows)})};
 
 %% CommandComplete
@@ -559,20 +570,26 @@ on_message({$I, _Bin}, State) ->
     {noreply, State2};
 
 %% ReadyForQuery
-on_message({$Z, <<Status:8>>}, State) ->
-    State2 = case command_tag(State) of
-                 squery ->
-                     case State#state.results of
-                         [Result] ->
+on_message({$Z, <<Status:8>>}, State = #state{queue = Q}) ->    
+    {{From, _}, _} = queue:get(Q),
+    State2 = if
+                 is_function(From) ->
+                     reply(State, done);
+                 is_pid(From) ->
+                     case command_tag(State) of
+                         squery ->
+                             case State#state.results of
+                                 [Result] ->
+                                     reply(State, Result);
+                                 Results ->
+                                     reply(State, lists:reverse(Results))
+                             end;
+                         equery ->
+                             [Result] = State#state.results,
                              reply(State, Result);
-                         Results ->
-                             reply(State, lists:reverse(Results))
-                     end;
-                 equery ->
-                     [Result] = State#state.results,
-                     reply(State, Result);
-                 sync ->
-                     reply(State, ok)
+                         sync ->
+                             reply(State, ok)
+                     end
              end,
     {noreply, State2#state{txstatus = Status}};
 
