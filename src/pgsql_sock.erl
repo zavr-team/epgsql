@@ -543,6 +543,7 @@ on_message({$C, Bin}, State) ->
     Complete = pgsql_wire:decode_complete(Bin),
     Command = command_tag(State),
     Rows = lists:reverse(State#state.rows),
+    %% TODO extract to complete(State, Complete)
     State2 = case {Command, Complete, Rows} of
                  {execute, {_, Count}, []} ->
                      finish_request(State, {ok, Count});
@@ -570,7 +571,8 @@ on_message({$I, _Bin}, State) ->
     {noreply, State2};
 
 %% ReadyForQuery
-on_message({$Z, <<Status:8>>}, State = #state{queue = Q}) ->    
+on_message({$Z, <<Status:8>>}, State = #state{queue = Q}) ->
+    %% TODO extract to done(State)
     {{From, _}, _} = queue:get(Q),
     State2 = if
                  is_function(From) ->
