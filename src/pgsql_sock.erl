@@ -302,7 +302,7 @@ loop(#state{data = Data, handler = Handler} = State) ->
             {noreply, State}
     end.
 
-reply(State = #state{queue = Q}, Message) ->
+finish_request(State = #state{queue = Q}, Message) ->
     {{From, Ref}, _} = queue:get(Q),
     if
         is_pid(From) ->
@@ -364,7 +364,7 @@ sync_required(#state{queue = Q} = State) ->
                 sync ->
                     State;
                 _ ->
-                    sync_required(reply(State, {error, sync_required}))
+                    sync_required(finish_request(State, {error, sync_required}))
             end;
         true ->
             State#state{sync_required = true}
@@ -373,7 +373,7 @@ sync_required(#state{queue = Q} = State) ->
 flush_queue(#state{queue = Q} = State, Error) ->
     case queue:is_empty(Q) of
         false ->
-            flush_queue(reply(State, Error), Error);
+            flush_queue(finish_request(State, Error), Error);
         true -> State
     end.
 
@@ -423,7 +423,7 @@ auth({$R, <<M:?int32, _/binary>>}, State) ->
         8 -> Method = sspi;
         _ -> Method = unknown
     end,
-    State2 = reply(State, {error, {unsupported_auth_method, Method}}),
+    State2 = finish_request(State, {error, {unsupported_auth_method, Method}}),
     {stop, normal, State2};
 
 %% ErrorResponse
@@ -433,7 +433,7 @@ auth({error, E}, State) ->
         <<"28P01">> -> Why = invalid_password;
         Any         -> Why = Any
     end,
-    {stop, normal, reply(State, {error, Why})};
+    {stop, normal, finish_request(State, {error, Why})};
 
 auth(Other, State) ->
     on_message(Other, State).
@@ -452,13 +452,13 @@ initializing({$Z, <<Status:8>>}, State) ->
         {value, {_, <<"on">>}}  -> put(datetime_mod, pgsql_idatetime);
         {value, {_, <<"off">>}} -> put(datetime_mod, pgsql_fdatetime)
     end,
-    State2 = reply(State#state{handler = on_message,
+    State2 = finish_request(State#state{handler = on_message,
                                txstatus = Status},
                    connected),
     {noreply, State2};
 
 initializing({error, _} = Error, State) ->
-    {stop, normal, reply(State, Error)};
+    {stop, normal, finish_request(State, Error)};
 
 initializing(Other, State) ->
     on_message(Other, State).
@@ -489,11 +489,11 @@ on_message({$T, <<Count:?int16, Bin/binary>>}, State) ->
                          [Col#column{format = pgsql_wire:format(
                                                 Col#column.type)}
                           || Col <- Columns],
-                     reply(State,
+                     finish_request(State,
                            {ok, State#state.statement#statement{
                                               columns = Columns2}});
                  describe_portal ->
-                     reply(State, {ok, Columns})
+                     finish_request(State, {ok, Columns})
              end,
     {noreply, State2};
 
@@ -501,10 +501,10 @@ on_message({$T, <<Count:?int16, Bin/binary>>}, State) ->
 on_message({$n, <<>>}, State) ->
     State2 = case command_tag(State) of
                  C when C == parse; C == describe_statement ->
-                     reply(State,
+                     finish_request(State,
                            {ok, State#state.statement#statement{columns= []}});
                  describe_portal ->
-                     reply(State, {ok, []})
+                     finish_request(State, {ok, []})
              end,
     {noreply, State2};
 
@@ -514,7 +514,7 @@ on_message({$2, <<>>}, State) ->
                  equery ->
                      State;
                  bind ->
-                     reply(State, ok)
+                     finish_request(State, ok)
              end,
     {noreply, State2};
 
@@ -522,7 +522,7 @@ on_message({$2, <<>>}, State) ->
 on_message({$3, <<>>}, State) ->
     State2 = case command_tag(State) of
                  close ->
-                     reply(State, ok);
+                     finish_request(State, ok);
                  equery ->
                      State
              end,
@@ -536,7 +536,7 @@ on_message({$D, <<_Count:?int16, Bin/binary>>}, State) ->
 %% PortalSuspended
 on_message({$s, <<>>}, State) ->
     %% TODO broken for callback
-    {noreply, reply(State, {partial, lists:reverse(State#state.rows)})};
+    {noreply, finish_request(State, {partial, lists:reverse(State#state.rows)})};
 
 %% CommandComplete
 on_message({$C, Bin}, State) ->
@@ -545,11 +545,11 @@ on_message({$C, Bin}, State) ->
     Rows = lists:reverse(State#state.rows),
     State2 = case {Command, Complete, Rows} of
                  {execute, {_, Count}, []} ->
-                     reply(State, {ok, Count});
+                     finish_request(State, {ok, Count});
                  {execute, {_, Count}, _} ->
-                     reply(State, {ok, Count, Rows});
+                     finish_request(State, {ok, Count, Rows});
                  {execute, _, _} ->
-                     reply(State, {ok, Rows});
+                     finish_request(State, {ok, Rows});
                  {C, {_, Count}, []} when C == squery; C == equery ->
                      add_result(State, {ok, Count});
                  {C, {_, Count}, _} when C == squery; C == equery ->
@@ -563,7 +563,7 @@ on_message({$C, Bin}, State) ->
 on_message({$I, _Bin}, State) ->
     State2 = case command_tag(State) of
                  execute ->
-                     reply(State, {ok, [], []});
+                     finish_request(State, {ok, [], []});
                  C when C == squery; C == equery ->
                      add_result(State, {ok, [], []})
              end,
@@ -574,21 +574,21 @@ on_message({$Z, <<Status:8>>}, State = #state{queue = Q}) ->
     {{From, _}, _} = queue:get(Q),
     State2 = if
                  is_function(From) ->
-                     reply(State, done);
+                     finish_request(State, done);
                  is_pid(From) ->
                      case command_tag(State) of
                          squery ->
                              case State#state.results of
                                  [Result] ->
-                                     reply(State, Result);
+                                     finish_request(State, Result);
                                  Results ->
-                                     reply(State, lists:reverse(Results))
+                                     finish_request(State, lists:reverse(Results))
                              end;
                          equery ->
                              [Result] = State#state.results,
-                             reply(State, Result);
+                             finish_request(State, Result);
                          sync ->
-                             reply(State, ok)
+                             finish_request(State, ok)
                      end
              end,
     {noreply, State2#state{txstatus = Status}};
@@ -598,7 +598,7 @@ on_message(Error = {error, _}, State) ->
                  C when C == squery; C == equery ->
                      add_result(State, Error);
                  _ ->
-                     sync_required(reply(State, Error))
+                     sync_required(finish_request(State, Error))
              end,
     {noreply, State2};
 
