@@ -539,12 +539,19 @@ on_message({$s, <<>>}, State) ->
     {noreply, finish_request(State, {partial, lists:reverse(State#state.rows)})};
 
 %% CommandComplete
-on_message({$C, Bin}, State) ->
+on_message({$C, Bin}, State = #state{queue = Q}) ->
     Complete = pgsql_wire:decode_complete(Bin),
-    Command = command_tag(State),
     Rows = lists:reverse(State#state.rows),
-    %% TODO extract to complete(State, Complete)
-    State2 = case {Command, Complete, Rows} of
+    State2 = complete(State, queue:get(Q), Complete, Rows),
+    {noreply, State2};
+
+complete(State, {{From, _}, Command}, Complete, _)
+  when is_function(From), element(1, Command) == execute ->
+    finish_request(State, {complete, Complete});
+
+
+complete(State, {{From, _}, Command}, Complete, Rows) when element(1, Command) ==  ->
+    case {Command, Complete, Rows} of
                  {execute, {_, Count}, []} ->
                      finish_request(State, {ok, Count});
                  {execute, {_, Count}, _} ->
@@ -557,8 +564,7 @@ on_message({$C, Bin}, State) ->
                      add_result(State, {ok, Count, get_columns(State), Rows});
                  {C, _, _} when C == squery; C == equery ->
                      add_result(State, {ok, get_columns(State), Rows})
-             end,
-    {noreply, State2};
+             end
 
 %% EmptyQueryResponse
 on_message({$I, _Bin}, State) ->
