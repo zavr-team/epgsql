@@ -101,8 +101,8 @@ handle_call({get_parameter, Name}, _From, State) ->
     end,
     {reply, {ok, Value}, State}.
 
-%% TODO request format broken
-handle_cast({{From, Ref}, Command}, State = #state{sync_required = true})
+%% TODO request formats
+handle_cast({{cast, From, Ref}, Command}, State = #state{sync_required = true})
   when Command /= sync ->
     From ! {Ref, {error, sync_required}},
     {noreply, State};
