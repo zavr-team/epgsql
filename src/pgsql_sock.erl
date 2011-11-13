@@ -293,7 +293,7 @@ reply(State, {types, _}) ->
 reply(State, {columns, Columns}) ->
     case command_tag(State) of
         C when C == parse; C == describe_statement ->
-            send_reply(State, {ok, make_statement(State});
+            send_reply(State, {ok, make_statement(State)});
         describe_portal ->
             send_reply(State, {ok, Columns})
     end;
@@ -382,13 +382,13 @@ send_reply(State = #state{queue = Q}, Message) ->
     {{cast, From, Ref}, _} = queue:get(Q),
     From ! {Ref, Message},
     State#state{queue = queue:drop(Q),
-                statement = undefined,
+                types = [],
                 columns = [],
                 rows = [],
                 results = []}.
 
 add_result(State = #state{results = Results}, Result) ->
-    State#state{statement = undefined,
+    State#state{types = [],
                 columns = [],
                 rows = [],
                 results = [Result | Results]}.
@@ -424,7 +424,7 @@ make_statement(State) ->
                {_, {parse, N, _, _}} -> N;
                {_, {describe_statement, N}} -> N
            end,
-    #statement{name = Name, types = Types, columns = Columns}}.
+    #statement{name = Name, types = Types, columns = Columns}.
 
 sync_required(#state{queue = Q} = State) ->
     case queue:is_empty(Q) of
