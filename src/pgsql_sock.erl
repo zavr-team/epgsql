@@ -287,6 +287,9 @@ loop(#state{data = Data, handler = Handler} = State) ->
             {noreply, State}
     end.
 
+reply(State, connected) ->
+    send_reply(State, connected);
+
 reply(State, {types, _}) ->
     State;
 
