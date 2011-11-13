@@ -295,12 +295,12 @@ reply(State, {types, _}) ->
 
 reply(State, {columns, Columns}) ->
     case command_tag(State) of
+        squery ->
+            State;
         C when C == parse; C == describe_statement ->
             send_reply(State, {ok, make_statement(State)});
         describe_portal ->
-            send_reply(State, {ok, Columns});
-        squery ->
-            State
+            send_reply(State, {ok, Columns})
     end;
 
 reply(State, no_data) ->
