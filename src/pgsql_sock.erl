@@ -285,6 +285,111 @@ loop(#state{data = Data, handler = Handler} = State) ->
             {noreply, State}
     end.
 
+reply(State = #state{queue = Q}, {types, Types}) ->
+    Name = case queue:get(Q) of
+               {_, {parse, N, _, _}} -> N;
+               {_, {describe_statement, N}} -> N
+           end,
+    State#state{statement = #statement{name = Name,
+                                       types = Types}};
+
+reply(State, {columns, Columns}) ->
+    case command_tag(State) of
+        squery ->
+            State#state{columns = Columns};
+        C when C == parse; C == describe_statement ->
+            Columns2 =
+                [Col#column{format = pgsql_wire:format(
+                                       Col#column.type)}
+                 || Col <- Columns],
+            reply(State,
+                  {ok, State#state.statement#statement{
+                                     columns = Columns2}});
+        describe_portal ->
+            reply(State, {ok, Columns})
+    end;
+
+reply(State, no_data) ->
+    case command_tag(State) of
+        C when C == parse; C == describe_statement ->
+            reply(State,
+                  {ok, State#state.statement#statement{columns= []}});
+        describe_portal ->
+            reply(State, {ok, []})
+    end;
+
+reply(State, bind_complete) ->
+    case command_tag(State) of
+        equery ->
+            State;
+        bind ->
+            reply(State, ok)
+    end;
+
+reply(State, close_complete) ->
+    case command_tag(State) of
+        close ->
+            reply(State, ok);
+        equery ->
+            State
+    end;
+
+reply(State, {data, Data}) ->
+    State#state{rows = [Data | State#state.rows]};
+
+reply(State, suspended) ->
+    reply(State, {partial, lists:reverse(State#state.rows)});
+
+reply(State, {complete, Complete}) ->
+    Command = command_tag(State),
+    Rows = lists:reverse(State#state.rows),
+    case {Command, Complete, Rows} of
+        {execute, {_, Count}, []} ->
+            reply(State, {ok, Count});
+        {execute, {_, Count}, _} ->
+            reply(State, {ok, Count, Rows});
+        {execute, _, _} ->
+            reply(State, {ok, Rows});
+        {C, {_, Count}, []} when C == squery; C == equery ->
+            add_result(State, {ok, Count});
+        {C, {_, Count}, _} when C == squery; C == equery ->
+            add_result(State, {ok, Count, get_columns(State), Rows});
+        {C, _, _} when C == squery; C == equery ->
+            add_result(State, {ok, get_columns(State), Rows})
+    end;
+
+reply(State, empty) ->
+    case command_tag(State) of
+        execute ->
+            reply(State, {ok, [], []});
+        C when C == squery; C == equery ->
+            add_result(State, {ok, [], []})
+    end;
+
+reply(State, done) ->
+    case command_tag(State) of
+        squery ->
+            case State#state.results of
+                [Result] ->
+                    reply(State, Result);
+                Results ->
+                    reply(State, lists:reverse(Results))
+            end;
+        equery ->
+            [Result] = State#state.results,
+            reply(State, Result);
+        sync ->
+            reply(State, ok)
+    end;
+
+reply(State, Error = {error, _}) ->
+    case command_tag(State) of
+        C when C == squery; C == equery ->
+            add_result(State, Error);
+        _ ->
+            sync_required(reply(State, Error))
+    end;
+
 reply(State = #state{queue = Q}, Message) ->
     {{From, Ref}, _} = queue:get(Q),
     From ! {Ref, Message},
@@ -427,130 +532,60 @@ on_message({$1, <<>>}, State) ->
 
 %% ParameterDescription
 on_message({$t, <<_Count:?int16, Bin/binary>>}, State) ->
-    #state{queue = Q} = State,
     Types = [pgsql_types:oid2type(Oid) || <<Oid:?int32>> <= Bin],
-    Name = case queue:get(Q) of
-               {_, {parse, N, _, _}} -> N;
-               {_, {describe_statement, N}} -> N
-           end,
-    {noreply, State#state{statement = #statement{name = Name,
-                                                 types = Types}}};
+    State2 = reply(State, {types, Types}),
+    {noreply, State2};
 
 %% RowDescription
 on_message({$T, <<Count:?int16, Bin/binary>>}, State) ->
     Columns = pgsql_wire:decode_columns(Count, Bin),
-    State2 = case command_tag(State) of
-                 squery ->
-                     State#state{columns = Columns};
-                 C when C == parse; C == describe_statement ->
-                     Columns2 =
-                         [Col#column{format = pgsql_wire:format(
-                                                Col#column.type)}
-                          || Col <- Columns],
-                     reply(State,
-                           {ok, State#state.statement#statement{
-                                              columns = Columns2}});
-                 describe_portal ->
-                     reply(State, {ok, Columns})
-             end,
+    State2 = reply(State, {columns, Columns}),
     {noreply, State2};
 
 %% NoData
 on_message({$n, <<>>}, State) ->
-    State2 = case command_tag(State) of
-                 C when C == parse; C == describe_statement ->
-                     reply(State,
-                           {ok, State#state.statement#statement{columns= []}});
-                 describe_portal ->
-                     reply(State, {ok, []})
-             end,
+    State2 = reply(State, no_data),
     {noreply, State2};
 
 %% BindComplete
 on_message({$2, <<>>}, State) ->
-    State2 = case command_tag(State) of
-                 equery ->
-                     State;
-                 bind ->
-                     reply(State, ok)
-             end,
+    State2 = reply(State, bind_complete),
     {noreply, State2};
 
 %% CloseComplete
 on_message({$3, <<>>}, State) ->
-    State2 = case command_tag(State) of
-                 close ->
-                     reply(State, ok);
-                 equery ->
-                     State
-             end,
+    State2 = reply(State, close_complete),
     {noreply, State2};
 
 %% DataRow
 on_message({$D, <<_Count:?int16, Bin/binary>>}, State) ->
     Data = pgsql_wire:decode_data(get_columns(State), Bin),
-    {noreply, State#state{rows = [Data | State#state.rows]}};
+    State2 = reply(State, {data, Data}),
+    {noreply, State2};
 
 %% PortalSuspended
 on_message({$s, <<>>}, State) ->
-    {noreply, reply(State, {partial, lists:reverse(State#state.rows)})};
+    State2 = reply(State, suspended),
+    {noreply, State2};
 
 %% CommandComplete
 on_message({$C, Bin}, State) ->
     Complete = pgsql_wire:decode_complete(Bin),
-    Command = command_tag(State),
-    Rows = lists:reverse(State#state.rows),
-    State2 = case {Command, Complete, Rows} of
-                 {execute, {_, Count}, []} ->
-                     reply(State, {ok, Count});
-                 {execute, {_, Count}, _} ->
-                     reply(State, {ok, Count, Rows});
-                 {execute, _, _} ->
-                     reply(State, {ok, Rows});
-                 {C, {_, Count}, []} when C == squery; C == equery ->
-                     add_result(State, {ok, Count});
-                 {C, {_, Count}, _} when C == squery; C == equery ->
-                     add_result(State, {ok, Count, get_columns(State), Rows});
-                 {C, _, _} when C == squery; C == equery ->
-                     add_result(State, {ok, get_columns(State), Rows})
-             end,
+    State2 = reply(State, {complete, Complete}),
     {noreply, State2};
 
 %% EmptyQueryResponse
 on_message({$I, _Bin}, State) ->
-    State2 = case command_tag(State) of
-                 execute ->
-                     reply(State, {ok, [], []});
-                 C when C == squery; C == equery ->
-                     add_result(State, {ok, [], []})
-             end,
+    State2 = reply(State, empty),
     {noreply, State2};
 
 %% ReadyForQuery
 on_message({$Z, <<Status:8>>}, State) ->
-    State2 = case command_tag(State) of
-                 squery ->
-                     case State#state.results of
-                         [Result] ->
-                             reply(State, Result);
-                         Results ->
-                             reply(State, lists:reverse(Results))
-                     end;
-                 equery ->
-                     [Result] = State#state.results,
-                     reply(State, Result);
-                 sync ->
-                     reply(State, ok)
-             end,
-    {noreply, State2#state{txstatus = Status}};
+    State2 = reply(State#state{txstatus = Status}, done),
+    {noreply, State2};
 
 on_message(Error = {error, _}, State) ->
-    State2 = case command_tag(State) of
-                 C when C == squery; C == equery ->
-                     add_result(State, Error);
-                 _ ->
-                     sync_required(reply(State, Error))
-             end,
+    State2 = reply(State, Error),
     {noreply, State2};
 
 %% NoticeResponse
