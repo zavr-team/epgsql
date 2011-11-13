@@ -298,7 +298,9 @@ reply(State, {columns, Columns}) ->
         C when C == parse; C == describe_statement ->
             send_reply(State, {ok, make_statement(State)});
         describe_portal ->
-            send_reply(State, {ok, Columns})
+            send_reply(State, {ok, Columns});
+        squery ->
+            State
     end;
 
 reply(State, no_data) ->
