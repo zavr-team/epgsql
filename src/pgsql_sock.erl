@@ -119,7 +119,7 @@ command(Command, State = #state{sync_required = true})
     {noreply, finish(State, {error, sync_required})};
 
 command({connect, Host, Username, Password, Opts}, State) ->
-    Timeout = proplists:get_value(timeout, Opts, 5000),
+    Timeout = proplists:get_value(timeout, Opts, ?DEFAULT_CONNECT_TIMEOUT),
     Port = proplists:get_value(port, Opts, 5432),
     SockOpts = [{active, false}, {packet, raw}, binary, {nodelay, true}],
     {ok, Sock} = gen_tcp:connect(Host, Port, SockOpts, Timeout),
@@ -228,7 +228,7 @@ command(sync, State) ->
 
 start_ssl(S, Flag, Opts, State) ->
     ok = gen_tcp:send(S, <<8:?int32, 80877103:?int32>>),
-    Timeout = proplists:get_value(timeout, Opts, 5000),
+    Timeout = proplists:get_value(timeout, Opts, ?DEFAULT_CONNECT_TIMEOUT),
     {ok, <<Code>>} = gen_tcp:recv(S, 1, Timeout),
     case Code of
         $S  ->
