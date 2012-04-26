@@ -24,6 +24,7 @@ connect(Host, Username, Opts) ->
 
 connect(Host, Username, Password, Opts) ->
     {ok, C} = pgsql_sock:start_link(),
+    Timeout = proplists:get_value(timeout, Opts, ?DEFAULT_CONNECT_TIMEOUT),
     Ref = ipgsql:connect(C, Host, Username, Password, Opts),
     receive
         {C, Ref, connected} ->
@@ -32,6 +33,10 @@ connect(Host, Username, Password, Opts) ->
             Error;
         {'EXIT', C, _Reason} ->
             {error, closed}
+    after
+        Timeout ->
+            ipgsql:close(C),
+            {error, timeout}
     end.
 
 close(C) ->

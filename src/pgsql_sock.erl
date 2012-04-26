@@ -106,7 +106,7 @@ handle_info({_, Sock, Data2}, #state{data = Data, sock = Sock} = State) ->
     loop(State#state{data = <<Data/binary, Data2/binary>>}).
 
 terminate(_Reason, _State) ->
-    %% TODO send termination msg, close socket ??
+    %% TODO send termination msg, flush and close socket ?
     ok.
 
 code_change(_OldVsn, State, _Extra) ->

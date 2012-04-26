@@ -34,14 +34,18 @@ connect(Host, Username, Password, Opts) ->
     connect(C, Host, Username, Password, Opts).
 
 connect(C, Host, Username, Password, Opts) ->
-    %% TODO connect timeout
-    case gen_server:call(C,
+    Timeout = proplists:get_value(timeout, Opts, ?DEFAULT_CONNECT_TIMEOUT),
+    try gen_server:call(C,
                          {connect, Host, Username, Password, Opts},
-                         infinity) of
+                         Timeout) of
         connected ->
             {ok, C};
         Error = {error, _} ->
             Error
+    catch
+        exit:timeout ->
+            close(C),
+            {error, timeout}
     end.
 
 close(C) ->
