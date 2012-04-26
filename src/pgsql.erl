@@ -43,7 +43,7 @@ connect(C, Host, Username, Password, Opts) ->
         Error = {error, _} ->
             Error
     catch
-        exit:timeout ->
+        exit:{timeout, _} ->
             close(C),
             {error, timeout}
     end.
