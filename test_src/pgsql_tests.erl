@@ -517,7 +517,16 @@ text_format_test(Module) ->
       end).
 
 connect_timeout_test(Module) ->
-    {error, timeout} = Module:connect(?host, [{port, ?port}, {timeout, 0}]).
+    Parent = self(),
+    Child = spawn_link(
+              fun() ->
+                      {error, timeout} =
+                          Module:connect(?host, [{port, ?port}, {timeout, 0}]),
+                      Parent ! {self(), ok}
+              end),
+    receive
+        {Child, ok} -> ok
+    end.
 
 query_timeout_test(Module) ->
     with_connection(
