@@ -532,11 +532,10 @@ query_timeout_test(Module) ->
     with_connection(
       Module,
       fun(C) ->
-              {error, timeout} = Module:squery(C, "select pg_sleep(1)"),
-              {error, timeout} = Module:equery(C, "select pg_sleep(2)"),
-              {ok, _Cols, [{1}]} = Module:equery(C, "select 1")
-      end,
-      [{timeout, 10}]).
+              {error, timeout} = Module:squery(C, "select pg_sleep(1)", 10),
+              {error, timeout} = Module:equery(C, "select pg_sleep(2)", [], 10),
+              {ok, _Cols, [{1}]} = Module:equery(C, "select 1", [], 10)
+      end).
 
 execute_timeout_test(Module) ->
     with_connection(
@@ -544,13 +543,12 @@ execute_timeout_test(Module) ->
       fun(C) ->
               {ok, S} = Module:parse(C, "select pg_sleep($1)"),
               ok = Module:bind(C, S, [2]),
-              {error, timeout} = Module:execute(C, S, 0),
+              {error, timeout} = Module:execute(C, S, "", 0, 10),
               ok = Module:bind(C, S, [0]),
-              {ok, [{<<>>}]} = Module:execute(C, S, 0),
+              {ok, [{<<>>}]} = Module:execute(C, S, "", 0, 10),
               ok = Module:close(C, S),
               ok = Module:sync(C)
-      end,
-      [{timeout, 10}]).
+      end).
 
 connection_closed_test(Module) ->
     P = self(),
