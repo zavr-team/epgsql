@@ -27,7 +27,6 @@ connect(Host, Username, Password, Opts) ->
     {ok, C} = pgsql_sock:start_link(),
     Timeout = proplists:get_value(timeout, Opts, ?DEFAULT_CONNECT_TIMEOUT),
     Ref = apgsql:connect(C, Host, Username, Password, Opts),
-    %% TODO connect timeout
     receive
         {C, Ref, connected} ->
             {ok, C};
