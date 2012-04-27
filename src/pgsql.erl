@@ -164,6 +164,9 @@ call_with_cancel(C, Args, Timeout) ->
     catch
         exit:{timeout, _} ->
             cancel(C),
+            receive
+                {R, _} when is_reference(R) -> discard_late_reply
+            end,
             ok = sync(C),
             {error, timeout}
     end.
