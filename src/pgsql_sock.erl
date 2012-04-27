@@ -80,7 +80,7 @@ handle_cast(stop, State) ->
 handle_cast(cancel, State = #state{backend = {Pid, Key}}) ->
     {ok, {Addr, Port}} = inet:peername(State#state.sock),
     SockOpts = [{active, false}, {packet, raw}, binary],
-    %% TODO timeout
+    %% TODO connect and send timeout
     {ok, Sock} = gen_tcp:connect(Addr, Port, SockOpts),
     Msg = <<16:?int32, 80877102:?int32, Pid:?int32, Key:?int32>>,
     ok = gen_tcp:send(Sock, Msg),
