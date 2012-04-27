@@ -6,12 +6,12 @@
 -export([connect/2, connect/3, connect/4, connect/5,
          close/1,
          get_parameter/2,
-         squery/2,
-         equery/2, equery/3,
+         squery/2, squery/3,
+         equery/2, equery/3, equery/4,
          parse/2, parse/3, parse/4,
          describe/2, describe/3,
          bind/3, bind/4,
-         execute/2, execute/3, execute/4,
+         execute/2, execute/3, execute/4, execute/5,
          execute_batch/2,
          close/2, close/3,
          sync/1,
@@ -55,17 +55,23 @@ get_parameter(C, Name) ->
     pgsql_sock:get_parameter(C, Name).
 
 squery(C, Sql) ->
-    gen_server:call(C, {squery, Sql}, infinity).
+    squery(C, Sql, infinity).
+
+squery(C, Sql, Timeout) ->
+    call_with_cancel(C, {squery, Sql}, Timeout).
 
 equery(C, Sql) ->
     equery(C, Sql, []).
 
-%% TODO add fast_equery command that doesn't need parsed statement
 equery(C, Sql, Parameters) ->
-    case parse(C, Sql) of
+    equery(C, Sql, Parameters, infinity).
+
+%% TODO add fast_equery command that doesn't need parsed statement
+equery(C, Sql, Parameters, Timeout) ->
+    case parse(C, "", Sql, []) of
         {ok, #statement{types = Types} = S} ->
             Typed_Parameters = lists:zip(Types, Parameters),
-            gen_server:call(C, {equery, S, Typed_Parameters}, infinity);
+            call_with_cancel(C, {equery, S, Typed_Parameters}, Timeout);
         Error ->
             Error
     end.
@@ -100,7 +106,10 @@ execute(C, S, N) ->
     execute(C, S, "", N).
 
 execute(C, S, PortalName, N) ->
-    gen_server:call(C, {execute, S, PortalName, N}, infinity).
+    execute(C, S, PortalName, N, infinity).
+
+execute(C, S, PortalName, N, Timeout) ->
+    call_with_cancel(C, {execute, S, PortalName, N}, Timeout).
 
 execute_batch(C, Batch) ->
     gen_server:call(C, {execute_batch, Batch}, infinity).
@@ -149,3 +158,12 @@ sync_on_error(C, Error = {error, _}) ->
 sync_on_error(_C, R) ->
     R.
 
+call_with_cancel(C, Args, Timeout) ->
+    try
+        gen_server:call(C, Args, Timeout)
+    catch
+        exit:{timeout, _} ->
+            cancel(C),
+            ok = sync(C),
+            {error, timeout}
+    end.
